@@ -1,4 +1,6 @@
-= DCGAN =
+# DCGAN
+
+## Objectives
 
 Daniel's tests with deep convolutional generative adversarial networks.
 
