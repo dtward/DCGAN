@@ -116,27 +116,18 @@ N1 = 64
 # then I can make an arbitrary number of layers
 
 
-def generator(z):
-    with tf.variable_scope('generator') as scope:
-        h0 = tf.reshape(tf.nn.relu(batchnorm(affine(z,N0*NH*NW/4/4,name='h0'),name='h0')), [-1, NH/4, NW/4, N0]) # 7x7
-        h1 = tf.nn.relu(batchnorm(conv2dT(h0,N1,name='h1'),name='h1')) # 14x14
+def generator(z,reuse=False,is_training=None):
+    if is_training is None:
+        is_training = not reuse
+    with tf.variable_scope('generator',reuse=reuse) as scope:
+        h0 = tf.reshape(tf.nn.relu(batchnorm(affine(z,N0*NH*NW/4/4,name='h0'),name='h0',is_training=is_training)), [-1, NH/4, NW/4, N0]) # 7x7
+        h1 = tf.nn.relu(batchnorm(conv2dT(h0,N1,name='h1'),name='h1',is_training=is_training)) # 14x14
         #h2 = tf.nn.tanh(batchnorm(conv2dT(h1,NC,name='h2'),name='h2'))*0.5 + 0.5 # 28x28
         h2 = tf.nn.tanh(conv2dT(h1,NC,name='h2'))*0.5 + 0.5 # 28x28
         # woah that was so easy
         # I don't think I need batchnorm at the output
         return h2
 
-
-def sampler(z):
-    ''' 
-    exacly the same as above but with reuse and no training on batchnorm 
-    '''
-    with tf.variable_scope('generator', reuse=True) as scope:
-        h0 = tf.reshape(tf.nn.relu(batchnorm(affine(z,N0*NH*NW/4/4,name='h0'),is_training=False,name='h0')), [-1, NH/4, NW/4, N0]) # 7x7
-        h1 = tf.nn.relu(batchnorm(conv2dT(h0,N1,name='h1'),is_training=False,name='h1')) # 14x14
-        #h2 = tf.nn.tanh(batchnorm(conv2dT(h1,NC,name='h2'),is_training=False,name='h2'))*0.5 + 0.5 # 28x28
-        h2 = tf.nn.tanh(conv2dT(h1,NC,name='h2'))*0.5 + 0.5 # 28x28
-        return h2
 
         
 def discriminator(image,reuse=False):
@@ -148,11 +139,9 @@ def discriminator(image,reuse=False):
         h2 = affine(tf.reshape(h1,[-1,N0*NH*NW/4/4]),1,name='h2') # no nonlinearity because we will use the sigmoid in the loss function
         return h2
 
-
-
 z = tf.placeholder(dtype=tf.float32,shape=[NB,NZ])
 g = generator(z)
-s = sampler(z)
+s = generator(z,reuse=True) # a sampler
 image = tf.placeholder(dtype=tf.float32,shape=[NB,NH,NW,NC])
 d_true = discriminator(image)
 d_false = discriminator(g,reuse=True)
