@@ -3,6 +3,42 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 
+#from PIL import Image
+
+# image loader
+import glob
+import os
+class ImageLoader(object):
+    ''' for now all the images should be the same size '''
+    def __init__(self,image_dir,image_filter='*.jpg'):
+        self.image_dir = image_dir
+        self.image_filter = image_filter
+        self.image_files = glob.glob(os.path.join(self.image_dir + '/' + self.image_filter))
+        self.counter = 0 # will loop through files
+        self.n_files = len(self.image_files)
+    def next_batch(self,n):
+        for i in xrange(n):
+            #J = Image.open(self.image_files[self.counter])
+            J = plt.imread(self.image_files[self.counter])
+            
+            
+            if i == 0:
+                nh,nw,nc = J.shape
+                I = np.zeros([n,nh,nw,nc],dtype=np.float32)
+            I[i,:,:,:] = J.astype(np.float32)/255.0
+            self.counter += 1
+            self.counter %= self.n_files
+        return I
+            
+        
+        
+        
+use_mnist = False
+if not use_mnist:
+    image_dir = 'cats2'
+    imageLoader = ImageLoader(image_dir)
+
+
 
 # some ops
 def affine(x, m, name='Affine', A_stddev=0.02, b_value=0.0):
@@ -75,6 +111,15 @@ NC = 1 # image channels
 N0 = 512 # first layer, number of features
 N1 = 128 # second layer, number of features
 
+# for cats
+NH = 64
+NW = 64
+NC = 3
+N0 = 256 # small at first
+N1 = 64
+
+# instead of specifying each layer, I'd like to give a list
+# then I can make an arbitrary number of layers
 
 
 def generator(z):
@@ -105,6 +150,7 @@ def discriminator(image,reuse=False):
         #h0 = lrelu(batchnorm(conv2d(image,N1,name='h0'),name='h0')) # 14x14
         h0 = lrelu(conv2d(image,N1,name='h0')) # 14x14, no batchnorm?
         h1 = lrelu(batchnorm(conv2d(image,N0,name='h1'),name='h1')) # 7x7
+
         h2 = affine(tf.reshape(h1,[-1,N0*NH*NW/4/4]),1,name='h2') # no nonlinearity because we will use the sigmoid in the loss function
         return h2
 
@@ -137,16 +183,25 @@ optimize_g = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1 = 0.5).mi
 
 
 
+
 # now we need to do some training
-from tensorflow.examples.tutorials.mnist import input_data
-mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
+if use_mnist:
+    from tensorflow.examples.tutorials.mnist import input_data
+    mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
 
 with tf.Session() as sess:
     sess.run(tf.initialize_all_variables())
     for i in range(1000):
         z_train = np.random.random([NB,NZ])
-        image_train = mnist.train.next_batch(NB)[0]
-        image_train.shape=[image_train.shape[0],28,28,1]
+
+        # I'd like to be able to this with things other than mnist
+
+        if use_mnist:
+            image_train = mnist.train.next_batch(NB)[0]
+            image_train.shape=[image_train.shape[0],NH,NW,NC]
+        else:
+            image_train = imageLoader.next_batch(NB)
+
         sess.run(optimize_d,feed_dict={z:z_train,image:image_train})
         
         #z_train = np.random.random([NB,NZ])
@@ -166,7 +221,10 @@ with tf.Session() as sess:
             z_train = np.random.random([NB,NZ])
             I = s.eval(feed_dict={z:z_train})
             plt.clf()
-            plt.imshow(I[1,:,:,0],cmap='gray',interpolation='none')
+            if NC == 0:
+                plt.imshow(I[1,:,:,0],cmap='gray',interpolation='none')
+            else:
+                plt.imshow(I[0,:,:,:],interpolation='none')
             plt.pause(0.1)
             # now I'd like to write something out!
             SNS = int(np.sqrt(NS))
