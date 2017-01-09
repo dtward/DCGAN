@@ -187,13 +187,32 @@ def generator(z,reuse=False,is_training=None):
 
         
 def discriminator(image,reuse=False):
-    with tf.variable_scope('discriminator', reuse=reuse) as scope:
-        #h0 = lrelu(batchnorm(conv2d(image,N1,name='h0'),name='h0')) # 14x14
-        h0 = lrelu(conv2d(image,N1,name='h0')) # 14x14, no batchnorm?
-        h1 = lrelu(batchnorm(conv2d(image,N0,name='h1'),name='h1')) # 7x7
+    # as before, first get sizes
+    NH_list = [NH/(2**i) for i in range(len(ND)+1)]
+    NW_list = [NW/(2**i) for i in range(len(ND)+1)]
 
-        h2 = affine(tf.reshape(h1,[-1,N0*NH*NW/4/4]),1,name='h2') # no nonlinearity because we will use the sigmoid in the loss function
-        return h2
+    
+    with tf.variable_scope('discriminator', reuse=reuse) as scope:
+        
+        # loop through
+        for i in range(len(ND)):
+            if i == 0:  # no batchnorm
+                h = lrelu(conv2d(image,ND[i],name='h0'))
+            else:
+                h = lrelu(batchnorm(conv2d(h,ND[i],name='h{}'.format(i)),name='h{}'.format(i)))
+
+        # output 1 number
+        h = affine(tf.reshape(h,[-1,ND[-1]*NH_list[-1]*NW_list[-1]]),1,name='ho')
+        return h
+
+
+        
+        ##h0 = lrelu(batchnorm(conv2d(image,N1,name='h0'),name='h0')) # 14x14
+        #h0 = lrelu(conv2d(image,N1,name='h0')) # 14x14, no batchnorm?
+        #h1 = lrelu(batchnorm(conv2d(image,N0,name='h1'),name='h1')) # 7x7
+
+        #h2 = affine(tf.reshape(h1,[-1,N0*NH*NW/4/4]),1,name='h2') # no nonlinearity because we will use the sigmoid in the loss function
+        #return h2
 
 z = tf.placeholder(dtype=tf.float32,shape=[NB,NZ])
 g = generator(z)
