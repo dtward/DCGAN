@@ -123,12 +123,12 @@ NG = [32,16]
 NG = [8,4,2]
 ND = [16,32]
 
-# retest with mnist, but wiht list in generator
-NG = [512,128] # note that the generator will output NC channels
+# retest with mnist, but with list in generator
+NG = [16,8] # note that the generator will output NC channels
 NH = 28
 NW = 28
 NC = 1
-ND = [128,512] # note that the discriminator will output 1 number
+ND = [32,16] # note that the discriminator will output 1 number
 
 # make sure its compatible with image size
 def check_layers(N,name):
@@ -149,70 +149,52 @@ check_layers(ND,'Discriminator')
 def generator(z,reuse=False,is_training=None):
     if is_training is None:
         is_training = not reuse
-        
-    # each layer is downsampled
+    print('Creating generator with reuse {} and is_training {}.'.format(reuse,is_training))
     # get the width and height of each layer
     NH_list = [NH/(2**i) for i in range(len(NG)+1)]
     NH_list = NH_list[::-1]
     NW_list = [NW/(2**i) for i in range(len(NG)+1)]
     NW_list = NW_list[::-1]
-    
-    # wanted to store those tensor ops in a list
-    # but doing so doesn't seem to work
-    # maybe something about deep versus shallow copies?
-    # anyway it is not necessary
 
     with tf.variable_scope('generator',reuse=reuse) as scope:
-
         # first we have a linear layer mapping dimension up to NG[0]
-
-        h = tf.reshape(tf.nn.relu(batchnorm(affine(z,NG[0]*NH_list[0]*NW_list[0],name='h0'),name='h0',is_training=is_training)), [-1, NH_list[0], NW_list[0], NG[0]]) # 7x7
+        h = tf.reshape(tf.nn.relu(batchnorm(affine(z,NG[0]*NH_list[0]*NW_list[0],name='h0'),name='h0',is_training=is_training)), [-1, NH_list[0], NW_list[0], NG[0]])
+        print('...Created affine connected layer from random input to {} channels.'.format(NG[0]))
         # now we iterate through layers
         for i in range(1,len(NG)):
-            h = tf.nn.relu(batchnorm(conv2dT(h,NG[i],name='h{}'.format(i)),name='h{}'.format(i),is_training=is_training)) # 14x14
+            h = tf.nn.relu(batchnorm(conv2dT(h,NG[i],name='h{}'.format(i)),name='h{}'.format(i),is_training=is_training))
+            print('...Created relu transposed convolution layer with batchnorm and {} channels.'.format(NG[i]))
 
         # last we go to NC (channels)
-        h = tf.nn.tanh(conv2dT(h,NC,name='ho'))*0.5 + 0.5 # 28x28
+        h = tf.nn.tanh(conv2dT(h,NC,name='ho'))*0.5 + 0.5
+        print('...Created tanh transposed convolution layer with {} channels.'.format(NC))
+        print('Done.')
         return h
 
-        # below is old when I didn't have a list of sizes
-        #h0 = tf.reshape(tf.nn.relu(batchnorm(affine(z,N0*NH*NW/4/4,name='h0'),name='h0',is_training=is_training)), [-1, NH/4, NW/4, N0]) # 7x7
-        #h1 = tf.nn.relu(batchnorm(conv2dT(h0,N1,name='h1'),name='h1',is_training=is_training)) # 14x14
-        ##h2 = tf.nn.tanh(batchnorm(conv2dT(h1,NC,name='h2'),name='h2'))*0.5 + 0.5 # 28x28
-        #h2 = tf.nn.tanh(conv2dT(h1,NC,name='h2'))*0.5 + 0.5 # 28x28
-        # woah that was so easy
-        # I don't think I need batchnorm at the output
-        #return h2
 
 
         
 def discriminator(image,reuse=False):
+    print('Creating discriminator with reuse {}.'.format(reuse))
+
     # as before, first get sizes
     NH_list = [NH/(2**i) for i in range(len(ND)+1)]
     NW_list = [NW/(2**i) for i in range(len(ND)+1)]
-
-    
     with tf.variable_scope('discriminator', reuse=reuse) as scope:
-        
         # loop through
         for i in range(len(ND)):
             if i == 0:  # no batchnorm
                 h = lrelu(conv2d(image,ND[i],name='h0'))
+                print('...Created leaky relu convolution layer with {} channels.'.format(ND[i]))
             else:
                 h = lrelu(batchnorm(conv2d(h,ND[i],name='h{}'.format(i)),name='h{}'.format(i)))
+                print('...Created leaky relu convolution layer with batchnorm and {} channels.'.format(ND[i]))
 
         # output 1 number
         h = affine(tf.reshape(h,[-1,ND[-1]*NH_list[-1]*NW_list[-1]]),1,name='ho')
+        print('...Created affine layer with one logit output.')
+        print('Done.')
         return h
-
-
-        
-        ##h0 = lrelu(batchnorm(conv2d(image,N1,name='h0'),name='h0')) # 14x14
-        #h0 = lrelu(conv2d(image,N1,name='h0')) # 14x14, no batchnorm?
-        #h1 = lrelu(batchnorm(conv2d(image,N0,name='h1'),name='h1')) # 7x7
-
-        #h2 = affine(tf.reshape(h1,[-1,N0*NH*NW/4/4]),1,name='h2') # no nonlinearity because we will use the sigmoid in the loss function
-        #return h2
 
 z = tf.placeholder(dtype=tf.float32,shape=[NB,NZ])
 g = generator(z)
