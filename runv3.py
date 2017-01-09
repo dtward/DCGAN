@@ -20,8 +20,6 @@ class ImageLoader(object):
         for i in xrange(n):
             #J = Image.open(self.image_files[self.counter])
             J = plt.imread(self.image_files[self.counter])
-            
-            
             if i == 0:
                 nh,nw,nc = J.shape
                 I = np.zeros([n,nh,nw,nc],dtype=np.float32)
@@ -29,18 +27,14 @@ class ImageLoader(object):
             self.counter += 1
             self.counter %= self.n_files
         return I
-            
-        
-        
-        
+
+image_dir = 'cats2'
 use_mnist = False
+
 if not use_mnist:
-    image_dir = 'cats2'
     imageLoader = ImageLoader(image_dir)
 
-
-
-# some ops
+# some operations I will use with proper scoping
 def affine(x, m, name='Affine', A_stddev=0.02, b_value=0.0):
     ''' affine map.  first dimension of x is batch.  
     it should be a vector of dimension n
