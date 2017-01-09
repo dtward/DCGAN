@@ -29,7 +29,7 @@ class ImageLoader(object):
         return I
 
 image_dir = 'cats2'
-use_mnist = False
+use_mnist = True
 
 if not use_mnist:
     imageLoader = ImageLoader(image_dir)
@@ -105,12 +105,42 @@ NC = 1 # image channels
 N0 = 512 # first layer, number of features
 N1 = 128 # second layer, number of features
 
+
+
+
 # for cats
-NH = 64
-NW = 64
-NC = 3
-N0 = 256 # small at first
-N1 = 64
+NH = 64                         # image height
+NW = 64                         # image width
+NC = 3                          # image channels
+N0 = 256                        # small at first
+N1 = 64                         # these are obselete
+
+# nice and small
+N0 = 32
+N1 = 16
+# for generator, let's go to a list
+NG = [32,16]
+NG = [8,4,2]
+ND = [16,32]
+
+# retest with mnist, but wiht list in generator
+NG = [512,128] # note that the generator will output NC channels
+NH = 28
+NW = 28
+NC = 1
+ND = [128,512] # note that the discriminator will output 1 number
+
+# make sure its compatible with image size
+def check_layers(N,name):
+    
+    for i,n in enumerate(N):
+        if NH/2**i != float(NH)/float(2**i) or NW/2**i != float(NW
+)/float(2**i):
+            raise ValueError('{} layers are not compatible with image size.  Note that only up and downsampling by a factor of 2 are available currently.'.format(name))
+check_layers(NG,'Generator')
+check_layers(ND,'Discriminator')
+# I don't think this is right for checking based on including NC
+
 
 # instead of specifying each layer, I'd like to give a list
 # then I can make an arbitrary number of layers
@@ -119,14 +149,40 @@ N1 = 64
 def generator(z,reuse=False,is_training=None):
     if is_training is None:
         is_training = not reuse
+        
+    # each layer is downsampled
+    # get the width and height of each layer
+    NH_list = [NH/(2**i) for i in range(len(NG)+1)]
+    NH_list = NH_list[::-1]
+    NW_list = [NW/(2**i) for i in range(len(NG)+1)]
+    NW_list = NW_list[::-1]
+    
+    # wanted to store those tensor ops in a list
+    # but doing so doesn't seem to work
+    # maybe something about deep versus shallow copies?
+    # anyway it is not necessary
+
     with tf.variable_scope('generator',reuse=reuse) as scope:
-        h0 = tf.reshape(tf.nn.relu(batchnorm(affine(z,N0*NH*NW/4/4,name='h0'),name='h0',is_training=is_training)), [-1, NH/4, NW/4, N0]) # 7x7
-        h1 = tf.nn.relu(batchnorm(conv2dT(h0,N1,name='h1'),name='h1',is_training=is_training)) # 14x14
-        #h2 = tf.nn.tanh(batchnorm(conv2dT(h1,NC,name='h2'),name='h2'))*0.5 + 0.5 # 28x28
-        h2 = tf.nn.tanh(conv2dT(h1,NC,name='h2'))*0.5 + 0.5 # 28x28
+
+        # first we have a linear layer mapping dimension up to NG[0]
+
+        h = tf.reshape(tf.nn.relu(batchnorm(affine(z,NG[0]*NH_list[0]*NW_list[0],name='h0'),name='h0',is_training=is_training)), [-1, NH_list[0], NW_list[0], NG[0]]) # 7x7
+        # now we iterate through layers
+        for i in range(1,len(NG)):
+            h = tf.nn.relu(batchnorm(conv2dT(h,NG[i],name='h{}'.format(i)),name='h{}'.format(i),is_training=is_training)) # 14x14
+
+        # last we go to NC (channels)
+        h = tf.nn.tanh(conv2dT(h,NC,name='ho'))*0.5 + 0.5 # 28x28
+        return h
+
+        # below is old when I didn't have a list of sizes
+        #h0 = tf.reshape(tf.nn.relu(batchnorm(affine(z,N0*NH*NW/4/4,name='h0'),name='h0',is_training=is_training)), [-1, NH/4, NW/4, N0]) # 7x7
+        #h1 = tf.nn.relu(batchnorm(conv2dT(h0,N1,name='h1'),name='h1',is_training=is_training)) # 14x14
+        ##h2 = tf.nn.tanh(batchnorm(conv2dT(h1,NC,name='h2'),name='h2'))*0.5 + 0.5 # 28x28
+        #h2 = tf.nn.tanh(conv2dT(h1,NC,name='h2'))*0.5 + 0.5 # 28x28
         # woah that was so easy
         # I don't think I need batchnorm at the output
-        return h2
+        #return h2
 
 
         
@@ -178,10 +234,9 @@ with tf.Session() as sess:
         z_train = np.random.random([NB,NZ])
 
         # I'd like to be able to this with things other than mnist
-
         if use_mnist:
             image_train = mnist.train.next_batch(NB)[0]
-            image_train.shape=[image_train.shape[0],NH,NW,NC]
+            image_train.shape=[NB,NH,NW,NC]
         else:
             image_train = imageLoader.next_batch(NB)
 
@@ -204,7 +259,7 @@ with tf.Session() as sess:
             z_train = np.random.random([NB,NZ])
             I = s.eval(feed_dict={z:z_train})
             plt.clf()
-            if NC == 0:
+            if NC == 1:
                 plt.imshow(I[1,:,:,0],cmap='gray',interpolation='none')
             else:
                 plt.imshow(I[0,:,:,:],interpolation='none')
