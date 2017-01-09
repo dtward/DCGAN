@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 plt.interactive(True)
 
 batch_size = 128 # from paper
-batch_size = 32
-batch_size = 64
+batch_size = 32 # from git code
+#batch_size = 64
 
-random_dimension = 100
-random_dimension = 50 # from paper
+random_dimension = 100 # from paper
+#random_dimension = 50 
 
 # image size
 image_row = 28
@@ -19,14 +19,17 @@ image_c = 1
 conv_size = 5
 
 # generator hidden layers (output is 1 image, or 3 for color)
-NG = [64,32,image_c]  
+NG = [64,32,image_c]
+NG = [256, 64, image_c] # this may be a bit small
 # for now I'll do image_c as output, maybe I can figure out something else later
 # note paper says 1024!
 # code says 1024 then 64
+#NG = [512, 64, image_c]
 
 
 # discriminator hidden layers (output is 1)
 ND = [32, 64]
+ND = [64, 128]
 
 # helper functions
 def rand_variable(shape,**input_dict):
@@ -169,6 +172,7 @@ loss_gen = tf.nn.sigmoid_cross_entropy_with_logits(Dfalse, tf.ones_like(Dfalse))
 
 # now get some optimizers going on
 learning_rate = 0.0002 # from paper
+learning_rate_dis = 0.0002 # maybe make it small, I don't want to be at 100% all the time
 
 momentum = 0.5 # from paper
 
@@ -176,9 +180,9 @@ var_list_dis = [v for v in tf.trainable_variables() if 'discriminator' in v.name
 var_list_gen = [v for v in tf.trainable_variables() if 'generator' in v.name]
 
 
-optimizer_dis_true = tf.train.AdamOptimizer(learning_rate,beta1=0.5).minimize(loss_dis_true,var_list = var_list_dis)
+optimizer_dis_true = tf.train.AdamOptimizer(learning_rate_dis,beta1=0.5).minimize(loss_dis_true,var_list = var_list_dis)
 
-optimizer_dis_false = tf.train.AdamOptimizer(learning_rate,beta1=0.5).minimize(loss_dis_false, var_list=var_list_dis)
+optimizer_dis_false = tf.train.AdamOptimizer(learning_rate_dis,beta1=0.5).minimize(loss_dis_false, var_list=var_list_dis)
 
 optimizer_gen = tf.train.AdamOptimizer(learning_rate,beta1=0.5).minimize(loss_gen,var_list=var_list_gen)
 
@@ -190,14 +194,15 @@ mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
 # now we're ready to train!
 with tf.Session() as sess:
     sess.run(tf.initialize_all_variables())
-    ntrain = 10000
+    ntrain = 100000
     for train_loop in xrange(ntrain):
         training_data = mnist.train.next_batch(batch_size)[0]
         training_data.shape =[batch_size,image_row,image_col,image_c]
-        sess.run(optimizer_dis_true,feed_dict={image:training_data})
         sess.run(optimizer_dis_false,feed_dict={z:np.random.random([batch_size,random_dimension])})
-
-        n_gen = 20 # code on github says 2, paper says 1 or even less than 1
+        sess.run(optimizer_dis_true,feed_dict={image:training_data})
+        
+        n_gen = 2 # code on github says 2, paper says 1 or even less than 1
+        # I want to not always be saturated at perfect performance
         for _ in range(n_gen):
             sess.run(optimizer_gen,feed_dict={z:np.random.random([batch_size,random_dimension])})
 
@@ -229,7 +234,9 @@ with tf.Session() as sess:
 
 #with tf.Session() as sess: tmp = D.eval(feed_dict={image:training_data})
     
-    
+#for I_ in I: plt.imshow(I_[:,:,0],interpolation='none',cmap='gray'),plt.pause(0.1)
+#for I_ in training_data: plt.imshow(I_[:,:,0],interpolation='none',cmap='gray'),plt.pause(0.1)
+
 
         
 
@@ -241,3 +248,10 @@ with tf.Session() as sess:
 # batch size 32
 # learning rate 0.0002
 # but after a thousand it just went nowhere
+
+# later runs on my work pc, it seemed to work after about 3000 iterations
+# I'm trying again with 10x smaller learning rate for discriminator, because it saturates at perfect so quickly
+# well just because it saturates classification, doesn't mean it saturates the loss function
+# maybe this isn't needed
+# with 10x smaller I seem to be keeping things at positive 0.95, negative ~0.3
+# but will it work?
