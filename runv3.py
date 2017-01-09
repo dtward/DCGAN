@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 import numpy as np
-
+import matplotlib.pyplot as plt
 
 
 # some ops
@@ -25,7 +25,8 @@ def conv2d(x, m, kernel_h=5, kernel_w=5, stride_h=2, stride_w=2, stddev=0.02, na
     n = x.get_shape()[3] # note it goes batch, height width channels
     with tf.variable_scope(name):
         kernel = tf.get_variable(name='kernel', shape=[kernel_h, kernel_w, n, m], dtype=tf.float32, initializer=tf.truncated_normal_initializer(stddev=stddev))
-        return tf.nn.conv2d(x, kernel, strides=[1,stride_h, stride_w, 1], padding='SAME')
+        b = tf.get_variable(name='b',shape=[m],dtype=tf.float32,initializer=tf.constant_initializer(value=0.0))
+        return tf.nn.conv2d(x, kernel, strides=[1,stride_h, stride_w, 1], padding='SAME') + b
 
 def conv2dT(x, m, kernel_h=5, kernel_w=5, stride_h=2, stride_w=2, stddev=0.02, name='conv2dT'):
     ''' 
@@ -41,7 +42,8 @@ def conv2dT(x, m, kernel_h=5, kernel_w=5, stride_h=2, stride_w=2, stddev=0.02, n
     with tf.variable_scope(name):
         kernel = tf.get_variable(name='kernel', shape=[kernel_h, kernel_w,m,n], dtype=tf.float32, initializer=tf.truncated_normal_initializer(stddev=stddev))
         # note kernel shape channels is "backwards"
-        return tf.nn.conv2d_transpose(x, kernel, output_shape=output_shape, strides=[1, stride_h, stride_w, 1], padding='SAME')
+        b = tf.get_variable(name='b',shape=[m],dtype=tf.float32,initializer=tf.constant_initializer(value=0.0))
+        return tf.nn.conv2d_transpose(x, kernel, output_shape=output_shape, strides=[1, stride_h, stride_w, 1], padding='SAME') + b
 
 # that should be everything I need for ops
 
@@ -61,17 +63,17 @@ def batchnorm(x, epsilon=1e-5, momentum = 0.9, is_training=True, name='batch_nor
 # let's think about this
 # is a function the best way to do this?
 
-def lrelu(x):
-    return tf.maximum(x,0.01*x)
+def lrelu(x,leak=0.2):
+    return tf.maximum(x,leak*x)
 
 
-NB = 10 # batch
-NZ = 20 # input dim
+NB = 32 # batch
+NZ = 100 # input dim
 NH = 28 # image height
 NW = 28 # image width
 NC = 1 # image channels
-N0 = 256 # first layer, number of features
-N1 = 128
+N0 = 512 # first layer, number of features
+N1 = 128 # second layer, number of features
 
 
 
@@ -100,7 +102,8 @@ def sampler(z):
         
 def discriminator(image,reuse=False):
     with tf.variable_scope('discriminator', reuse=reuse) as scope:
-        h0 = lrelu(batchnorm(conv2d(image,N1,name='h0'),name='h0')) # 14x14
+        #h0 = lrelu(batchnorm(conv2d(image,N1,name='h0'),name='h0')) # 14x14
+        h0 = lrelu(conv2d(image,N1,name='h0')) # 14x14, no batchnorm?
         h1 = lrelu(batchnorm(conv2d(image,N0,name='h1'),name='h1')) # 7x7
         h2 = affine(tf.reshape(h1,[-1,N0*NH*NW/4/4]),1,name='h2') # no nonlinearity because we will use the sigmoid in the loss function
         return h2
@@ -117,7 +120,71 @@ d_false = discriminator(g,reuse=True)
 # get the loss function
 l_d_true = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(d_true,tf.ones_like(d_true)))
 l_d_false = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(d_false,tf.zeros_like(d_true)))
-l_g = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(d_true,tf.ones_lide(d_true))) # instead of negative d_false, this is betterfor training
+l_g = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(d_false,tf.ones_like(d_true))) # better to give wrong label then do negative of d_false
 
 l_d = l_d_true + l_d_false
+
+l_d_summary = tf.scalar_summary('l_d_summary',l_d)
+
+l_g_summary = tf.scalar_summary('l_g_summary',l_g)
+
+# optimizers
+variables = tf.trainable_variables()
+learning_rate = 0.0002
+momentum = 0.5
+optimize_d = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1 = 0.5).minimize(l_d,var_list=[v for v in variables if 'discriminator' in v.name])
+optimize_g = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1 = 0.5).minimize(l_g,var_list=[v for v in variables if 'generator' in v.name])
+
+
+
+# now we need to do some training
+from tensorflow.examples.tutorials.mnist import input_data
+mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
+
+with tf.Session() as sess:
+    sess.run(tf.initialize_all_variables())
+    for i in range(1000):
+        z_train = np.random.random([NB,NZ])
+        image_train = mnist.train.next_batch(NB)[0]
+        image_train.shape=[image_train.shape[0],28,28,1]
+        sess.run(optimize_d,feed_dict={z:z_train,image:image_train})
+        
+        #z_train = np.random.random([NB,NZ])
+        sess.run(optimize_g,feed_dict={z:z_train})
+        
+        #z_train = np.random.random([NB,NZ])
+        sess.run(optimize_g,feed_dict={z:z_train})
+
+        # I don't understand summary
+        if not i%10:
+            print('iteration: {}'.format(i))
+            print('discriminator loss: {}'.format(l_d.eval(feed_dict={z:z_train,image:image_train})))
+            print('generator loss: {}'.format(l_g.eval(feed_dict={z:z_train})))
+            # do a square number less than NB
+            NS = 25
+            # apparantly I can't change the batch size, probably the way I set it up, no biggy, just choose NS less than NB
+            z_train = np.random.random([NB,NZ])
+            I = s.eval(feed_dict={z:z_train})
+            plt.clf()
+            plt.imshow(I[1,:,:,0],cmap='gray',interpolation='none')
+            plt.pause(0.1)
+            # now I'd like to write something out!
+            SNS = int(np.sqrt(NS))
+            J = np.zeros([NH*SNS,NW*SNS,NC])
+            count = 0
+            for j in range(SNS):
+                for k in range(SNS):
+                    J[j*NH:(j+1)*NH,k*NW:(k+1)*NW,:] = I[count,:,:,:]
+                    count += 1
+            if NC == 3:
+                plt.imsave('iter_{}.png'.format(i),J)
+            elif NC == 1:
+                plt.imsave('iter_{}.png'.format(i),np.tile(J,[1,1,3]))
+            
+            
+    
+    
+
+
+
 
