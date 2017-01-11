@@ -3,6 +3,8 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 
+import random
+
 #from PIL import Image
 
 # image loader
@@ -18,6 +20,9 @@ class ImageLoader(object):
         self.n_files = len(self.image_files)
     def next_batch(self,n):
         for i in xrange(n):
+            if self.counter == 0:
+                # shuffle in place
+                random.shuffle(self.image_files)
             #J = Image.open(self.image_files[self.counter])
             J = plt.imread(self.image_files[self.counter])
             if i == 0:
@@ -25,11 +30,13 @@ class ImageLoader(object):
                 I = np.zeros([n,nh,nw,nc],dtype=np.float32)
             I[i,:,:,:] = J.astype(np.float32)/255.0
             self.counter += 1
+            # counter will wrap around
             self.counter %= self.n_files
         return I
 
 image_dir = 'cats2'
-use_mnist = True
+image_dir = 'cats3' # note that I cropped this one better
+use_mnist = False
 
 if not use_mnist:
     imageLoader = ImageLoader(image_dir)
@@ -102,33 +109,28 @@ NZ = 100 # input dim
 NH = 28 # image height
 NW = 28 # image width
 NC = 1 # image channels
-N0 = 512 # first layer, number of features
-N1 = 128 # second layer, number of features
-
+NG = [512,128]
+ND = [128,512]
 
 
 
 # for cats
+NB = 64
 NH = 64                         # image height
 NW = 64                         # image width
 NC = 3                          # image channels
-N0 = 256                        # small at first
-N1 = 64                         # these are obselete
-
-# nice and small
-N0 = 32
-N1 = 16
-# for generator, let's go to a list
-NG = [32,16]
-NG = [8,4,2]
-ND = [16,32]
+NG = [32,16,8] # not hugely many
+NG = [64, 32, 16]
+NG = [256,64,32]
+NG = [512,256,128,64]
+ND = NG[::-1] # a nice mirror image
 
 # retest with mnist, but with list in generator
-NG = [16,8] # note that the generator will output NC channels
-NH = 28
-NW = 28
-NC = 1
-ND = [32,16] # note that the discriminator will output 1 number
+#NG = [16,8] # note that the generator will output NC channels
+#NH = 28
+#NW = 28
+#NC = 1
+#ND = [32,16] # note that the discriminator will output 1 number
 
 # make sure its compatible with image size
 def check_layers(N,name):
@@ -231,7 +233,11 @@ if use_mnist:
 
 with tf.Session() as sess:
     sess.run(tf.initialize_all_variables())
-    for i in range(1000):
+    # I should obviously SAVE my network
+    # then I can load it back here
+    n_summary = 10
+    print('beginning training, will print summary every {} iterations'.format(n_summary))
+    for i in range(100000):
         z_train = np.random.random([NB,NZ])
 
         # I'd like to be able to this with things other than mnist
@@ -243,19 +249,21 @@ with tf.Session() as sess:
 
         sess.run(optimize_d,feed_dict={z:z_train,image:image_train})
         
+        # I'm not sure if I should resample z_train here
+        # not resampling seems to work
         #z_train = np.random.random([NB,NZ])
         sess.run(optimize_g,feed_dict={z:z_train})
         
         #z_train = np.random.random([NB,NZ])
         sess.run(optimize_g,feed_dict={z:z_train})
 
-        # I don't understand summary
-        if not i%10:
+        # I don't understand tensorflow summary
+        if not i%n_summary:
             print('iteration: {}'.format(i))
             print('discriminator loss: {}'.format(l_d.eval(feed_dict={z:z_train,image:image_train})))
             print('generator loss: {}'.format(l_g.eval(feed_dict={z:z_train})))
-            # do a square number less than NB
-            NS = 25
+            # do a square number less than or equal to NB
+            NS = 64
             # apparantly I can't change the batch size, probably the way I set it up, no biggy, just choose NS less than NB
             z_train = np.random.random([NB,NZ])
             I = s.eval(feed_dict={z:z_train})
