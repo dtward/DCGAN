@@ -28,6 +28,8 @@ class ImageLoader(object):
             if i == 0:
                 nh,nw,nc = J.shape
                 I = np.zeros([n,nh,nw,nc],dtype=np.float32)
+            if np.max(J) <= 1.0: # because sometimes loading jpgs or pngs gives different results
+                J = J*255.0
             I[i,:,:,:] = J.astype(np.float32)/255.0
             self.counter += 1
             # counter will wrap around
@@ -37,9 +39,11 @@ class ImageLoader(object):
 image_dir = 'cats2'
 image_dir = 'cats3' # note that I cropped this one better
 use_mnist = False
+image_dir = '/cis/home/dtward/Documents/sandbox/album_covers/n_064/'
 
 if not use_mnist:
-    imageLoader = ImageLoader(image_dir)
+    #imageLoader = ImageLoader(image_dir)
+    imageLoader = ImageLoader(image_dir,'*.png')
 
 # some operations I will use with proper scoping
 def affine(x, m, name='Affine', A_stddev=0.02, b_value=0.0):
