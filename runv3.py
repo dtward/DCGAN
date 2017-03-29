@@ -28,7 +28,11 @@ class ImageLoader(object):
             if i == 0:
                 nh,nw,nc = J.shape
                 I = np.zeros([n,nh,nw,nc],dtype=np.float32)
-            I[i,:,:,:] = J.astype(np.float32)/255.0
+            #I[i,:,:,:] = J.astype(np.float32)/255.0
+            # pngs may already be normalized
+            norm = 255.0 if np.max(I)>1.0 else 1.0
+            I[i,:,:,:] = J.astype(np.float32)/norm
+
             self.counter += 1
             # counter will wrap around
             self.counter %= self.n_files
@@ -36,10 +40,14 @@ class ImageLoader(object):
 
 image_dir = 'cats2'
 image_dir = 'cats3' # note that I cropped this one better
+image_filter = '*.jpg'
+image_dir = 'cats4' # antialiasing, much nicer, and no compression
+image_filter = '*.png'
 use_mnist = False
 
 if not use_mnist:
-    imageLoader = ImageLoader(image_dir)
+    imageLoader = ImageLoader(image_dir,image_filter)
+
 
 # some operations I will use with proper scoping
 def affine(x, m, name='Affine', A_stddev=0.02, b_value=0.0):
@@ -161,7 +169,7 @@ def generator(z,reuse=False,is_training=None):
     with tf.variable_scope('generator',reuse=reuse) as scope:
         # first we have a linear layer mapping dimension up to NG[0]
         h = tf.reshape(tf.nn.relu(batchnorm(affine(z,NG[0]*NH_list[0]*NW_list[0],name='h0'),name='h0',is_training=is_training)), [-1, NH_list[0], NW_list[0], NG[0]])
-        print('...Created affine connected layer from random input to {} channels.'.format(NG[0]))
+        print('...Created affine connected layer with batchnorm from random input to {} channels.'.format(NG[0]))
         # now we iterate through layers
         for i in range(1,len(NG)):
             h = tf.nn.relu(batchnorm(conv2dT(h,NG[i],name='h{}'.format(i)),name='h{}'.format(i),is_training=is_training))
@@ -198,6 +206,39 @@ def discriminator(image,reuse=False):
         print('Done.')
         return h
 
+
+def load(sess,saver,iteration=None):
+    ''' load the saved checkpoint file '''
+    if iteration is None:
+        try:
+            with open('checkpoint') as f:
+                line = f.readline()
+                # get the latest save name
+                ind0 = line.find('"')
+                name = line[ind0+1:-2] # skip the "
+                # parse the name to get the iteration
+                parts = name.split('_')
+                parts = parts[-1].split('.')
+                iteration = int(parts[0])
+        except:
+            # if there is no file to open
+            print('No checkpoint file found')
+            return 0
+    else:
+        name = 'model_iteration_{}.ckpt'.format(iteration)
+    try:
+        saver.restore(sess,name)
+    except:
+        print('Checkpoint file {} not found'.format(name))
+        return 0
+    print('Loaded checkpoint file {}'.format(name))
+    return iteration
+
+
+
+
+# i think i should put none here on the placeholders instead of nb
+# but I can't seem to make it work
 z = tf.placeholder(dtype=tf.float32,shape=[NB,NZ])
 g = generator(z)
 s = generator(z,reuse=True) # a sampler
@@ -209,11 +250,10 @@ d_false = discriminator(g,reuse=True)
 l_d_true = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(d_true,tf.ones_like(d_true)))
 l_d_false = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(d_false,tf.zeros_like(d_true)))
 l_g = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(d_false,tf.ones_like(d_true))) # better to give wrong label then do negative of d_false
-
 l_d = l_d_true + l_d_false
 
+# summary? I haven't yet figured out how tomake this work
 l_d_summary = tf.scalar_summary('l_d_summary',l_d)
-
 l_g_summary = tf.scalar_summary('l_g_summary',l_g)
 
 # optimizers
@@ -223,7 +263,8 @@ momentum = 0.5
 optimize_d = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1 = 0.5).minimize(l_d,var_list=[v for v in variables if 'discriminator' in v.name])
 optimize_g = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1 = 0.5).minimize(l_g,var_list=[v for v in variables if 'generator' in v.name])
 
-
+# save my variables
+saver = tf.train.Saver()
 
 
 # now we need to do some training
@@ -235,9 +276,10 @@ with tf.Session() as sess:
     sess.run(tf.initialize_all_variables())
     # I should obviously SAVE my network
     # then I can load it back here
+    iteration0 = load(sess,saver)
     n_summary = 10
     print('beginning training, will print summary every {} iterations'.format(n_summary))
-    for i in range(100000):
+    for i in range(iteration0,100000):
         z_train = np.random.random([NB,NZ])
 
         # I'd like to be able to this with things other than mnist
@@ -257,7 +299,16 @@ with tf.Session() as sess:
         #z_train = np.random.random([NB,NZ])
         sess.run(optimize_g,feed_dict={z:z_train})
 
+        # save (saving is slow)
+        nsave = 100
+        #nsave = 1 # for testing
+        if not i%nsave and i>0:
+            save_path = saver.save(sess,'model_iteration_{}.ckpt'.format(i))
+            print('saved to {}'.format(save_path))
+
         # I don't understand tensorflow summary
+        if i == iteration0:
+            z_sample = np.random.random([NB,NZ])
         if not i%n_summary:
             print('iteration: {}'.format(i))
             print('discriminator loss: {}'.format(l_d.eval(feed_dict={z:z_train,image:image_train})))
@@ -265,8 +316,8 @@ with tf.Session() as sess:
             # do a square number less than or equal to NB
             NS = 64
             # apparantly I can't change the batch size, probably the way I set it up, no biggy, just choose NS less than NB
-            z_train = np.random.random([NB,NZ])
-            I = s.eval(feed_dict={z:z_train})
+            
+            I = s.eval(feed_dict={z:z_sample})
             plt.clf()
             if NC == 1:
                 plt.imshow(I[1,:,:,0],cmap='gray',interpolation='none')
@@ -289,6 +340,7 @@ with tf.Session() as sess:
             
     
     
+
 
 
 
